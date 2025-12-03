@@ -1,0 +1,39 @@
+# CMake
+cmake-build-*/
+build/
+_deps/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+
+# CLion
+.idea/
+*.iml
+
+# Compiled files
+*.exe
+*.out
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*~
+*.swp
+*.tmp
