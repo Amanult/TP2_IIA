@@ -25,7 +25,7 @@ int main() {
     worksheet_write_string(worksheet, 0, 1, "Idade", bold_format);
 
     worksheet_write_string(worksheet, 1, 0, "Alice", NULL);
-    worksheet_write_number(worksheet, 1, 1, 3, NULL);
+    worksheet_write_number(worksheet, 1, 1, 3.0, NULL);
 
     worksheet_write_string(worksheet, 2, 0, "Bob", NULL);
     worksheet_write_number(worksheet, 2, 1, 25, NULL);
