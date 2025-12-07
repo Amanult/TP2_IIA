@@ -6,7 +6,7 @@ int main() {
     //exemplo para perceber como funciona o xlsxwriter.h
 
     // 1. Criar o objeto workbook e o ficheiro de saída
-    lxw_workbook  *workbook  = workbook_new("relatorio_c.xlsx");
+    lxw_workbook  *workbook  = workbook_new("../Data/relatorio.xlsx");
     if (!workbook) {
         printf("Erro ao criar o workbook!\n");
         return 1;
