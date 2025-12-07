@@ -33,7 +33,18 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(libxlsxwriter)
 
 # Créer l'exécutable
-add_executable(TP2 main.c)
+add_executable(TP2 main.c
+        excel.c
+        excel.h
+        hibridos.c
+        hibridos.h
+        evolutivo.c
+        evolutivo.h
+        hill_climbing.c
+        hill_climbing.h
+        utils.c
+        utils.h
+        estruturas.h)
 
 # Lier les bibliothèques
 target_link_libraries(TP2 PRIVATE xlsxwriter)
