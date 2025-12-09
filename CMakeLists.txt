@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.0)
+cmake_minimum_required(VERSION 3.10)
 project(TP2 C)
 
 set(CMAKE_C_STANDARD 23)
@@ -32,19 +32,51 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(libxlsxwriter)
 
-# Créer l'exécutable
-add_executable(TP2 main.c
-        excel.c
-        excel.h
-        hibridos.c
-        hibridos.h
-        evolutivo.c
-        evolutivo.h
-        hill_climbing.c
-        hill_climbing.h
+# Ficheiros fonte
+set(SOURCES
+        main.c
         utils.c
-        utils.h
-        estruturas.h)
+        config.c
+        hill_climbing.c
+        evolutivo.c
+        hibridos.c
+        excel.c
+)
 
-# Lier les bibliothèques
-target_link_libraries(TP2 PRIVATE xlsxwriter)
+# Ficheiros header
+set(HEADERS
+        estruturas.h
+        utils.h
+        config.h
+        hill_climbing.h
+        evolutivo.h
+        hibridos.h
+        excel.h
+)
+
+# Criar executável
+add_executable(TP2 ${SOURCES} ${HEADERS})
+
+# Linkar bibliotecas usando os nomes dos Targets (Alvos)
+target_link_libraries(TP2
+        xlsxwriter      # Nome do target criado pelo FetchContent do libxlsxwriter
+        ZLIB::ZLIB      # Nome do alias que você criou para o zlib
+        # ${MATH_LIB}   # Geralmente desnecessário no Windows (MSVC). No Linux seria 'm'.
+)
+
+# Mensagens informativas
+message(STATUS "Projeto: ${PROJECT_NAME}")
+message(STATUS "Compilador C: ${CMAKE_C_COMPILER}")
+message(STATUS "Flags: ${CMAKE_C_FLAGS}")
+
+# Opcional: Copiar ficheiros de teste para a pasta build
+file(COPY ${CMAKE_SOURCE_DIR}/Data/tourism_5.txt
+        DESTINATION ${CMAKE_BINARY_DIR})
+
+# Target personalizado para executar
+add_custom_target(run
+        COMMAND TP2 tourism_5.txt
+        DEPENDS TP2
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "A executar TP2..."
+)

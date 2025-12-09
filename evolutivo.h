@@ -1,7 +1,3 @@
-//
-// Created by Gabriel on 07/12/2025.
-//
-
 #ifndef EVOLUTIVO_H
 #define EVOLUTIVO_H
 
@@ -26,6 +22,7 @@ void mutacao_embaralhar(Solucao *sol, Problema *prob);
 // Algoritmo Evolutivo
 Solucao *algoritmo_evolutivo(Problema *prob, int tamanho_pop, int geracoes,
                              double prob_cruzamento, double prob_mutacao,
-                             int tipo_selecao, int tipo_cruzamento, int tipo_mutacao);
+                             int tipo_selecao, int tipo_cruzamento, int tipo_mutacao,
+                             int tamanho_torneio);
 
 #endif

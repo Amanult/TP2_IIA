@@ -1,0 +1,127 @@
+# ========================================
+# CONFIGURACAO DO OTIMIZADOR TURISTICO
+# ========================================
+#
+# Este ficheiro permite configurar todos os parametros
+# dos algoritmos sem modificar o codigo fonte.
+#
+# Formato: parametro=valor
+# Linhas que começam com # são comentários
+
+# --- PARAMETROS GERAIS ---
+# Numero de execucoes de cada algoritmo
+num_execucoes=10
+
+# Seed aleatoria (-1 para usar tempo atual)
+# Use um valor fixo (ex: 42) para resultados reproduziveis
+seed_aleatoria=-1
+
+# --- HILL CLIMBING ---
+# Numero maximo de iteracoes
+# Valores sugeridos: 1000, 5000, 10000
+hc_max_iteracoes=5000
+
+# Tipo de vizinhanca
+# 0 = trocar um ponto (mais rapido)
+# 1 = trocar dois pontos (mais exploratorio)
+hc_vizinhanca=1
+
+# Aceitar solucoes de fitness igual
+# 0 = nao aceita (mais conservador)
+# 1 = aceita (mais exploratorio)
+hc_aceitar_iguais=1
+
+# --- ALGORITMO EVOLUTIVO ---
+# Tamanho da populacao
+# Valores sugeridos: 20, 50, 100
+ea_tamanho_populacao=50
+
+# Numero de geracoes
+# Valores sugeridos: 100, 200, 500
+ea_num_geracoes=200
+
+# Probabilidade de cruzamento (0.0 a 1.0)
+# Valores sugeridos: 0.6, 0.8, 0.9
+ea_prob_cruzamento=0.8
+
+# Probabilidade de mutacao (0.0 a 1.0)
+# Valores sugeridos: 0.05, 0.1, 0.2
+ea_prob_mutacao=0.1
+
+# Tipo de selecao
+# 0 = torneio (mais eficiente)
+# 1 = roleta (mais diverso)
+ea_tipo_selecao=0
+
+# Tamanho do torneio (se tipo_selecao=0)
+# Valores sugeridos: 2, 3, 5
+ea_tamanho_torneio=3
+
+# Tipo de cruzamento
+# 0 = uniforme (mais diverso)
+# 1 = um ponto (mais conservador)
+ea_tipo_cruzamento=0
+
+# Tipo de mutacao
+# 0 = trocar um gene (mais local)
+# 1 = embaralhar (mais disruptivo)
+ea_tipo_mutacao=0
+
+# --- HIBRIDO 1 (Evolutivo + Hill Climbing) ---
+# Esta abordagem usa o evolutivo para explorar
+# e depois refina com hill climbing
+
+# Tamanho da populacao do Evolutivo
+h1_pop_ea=50
+
+# Numero de geracoes do Evolutivo
+h1_ger_ea=100
+
+# Iteracoes do Hill Climbing para refinamento
+h1_iter_hc=500
+
+# --- HIBRIDO 2 (Hill Climbing + Evolutivo) ---
+# Esta abordagem começa com hill climbing
+# e depois usa evolutivo para diversificar
+
+# Iteracoes do Hill Climbing inicial
+h2_iter_hc=1000
+
+# Tamanho da populacao do Evolutivo
+h2_pop_ea=30
+
+# Numero de geracoes do Evolutivo
+h2_ger_ea=50
+
+# ========================================
+# DICAS PARA EXPERIMENTACAO
+# ========================================
+#
+# HILL CLIMBING:
+# - Aumentar iteracoes melhora qualidade mas demora mais
+# - Vizinhanca 2 explora mais mas é mais lenta
+# - Aceitar iguais ajuda a escapar de planaltos
+#
+# EVOLUTIVO:
+# - Populacao maior = mais diversidade mas mais lento
+# - Mais geracoes = melhor convergencia
+# - Cruzamento alto (0.8-0.9) + mutacao baixa (0.05-0.1)
+#   funciona bem para este problema
+# - Torneio é geralmente melhor que roleta
+#
+# HIBRIDOS:
+# - H1 é bom quando evolutivo encontra boas regioes
+# - H2 é bom quando hill climbing encontra bom ponto inicial
+# - Ajustar balance entre exploracao e refinamento
+#
+# PARA TESTES RAPIDOS:
+# - num_execucoes=3
+# - hc_max_iteracoes=1000
+# - ea_tamanho_populacao=20
+# - ea_num_geracoes=50
+#
+# PARA TESTES COMPLETOS:
+# - num_execucoes=30
+# - hc_max_iteracoes=10000
+# - ea_tamanho_populacao=100
+# - ea_num_geracoes=500

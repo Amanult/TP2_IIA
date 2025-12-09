@@ -1,12 +1,12 @@
-//
-// Created by Gabriel on 07/12/2025.
-//
-
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
 #include "evolutivo.h"
 #include "utils.h"
+
+// [Manter as funções criar_populacao, libertar_populacao, selecao_roleta,
+//  recombinacao_uniforme, recombinacao_um_ponto, mutacao_trocar, mutacao_embaralhar
+//  exatamente como estão no ficheiro original]
 
 // Cria população inicial
 Populacao *criar_populacao(Problema *prob, int tamanho_pop) {
@@ -29,7 +29,7 @@ void libertar_populacao(Populacao *pop) {
     free(pop);
 }
 
-// Seleção por torneio
+// Seleção por torneio com tamanho configurável
 Solucao *selecao_torneio(Populacao *pop, int tamanho_torneio) {
     Solucao *melhor = NULL;
     for (int i = 0; i < tamanho_torneio; i++) {
@@ -191,10 +191,11 @@ void mutacao_embaralhar(Solucao *sol, Problema *prob) {
     sol->fitness = calcular_fitness(sol, prob);
 }
 
-// Algoritmo Evolutivo
+// Algoritmo Evolutivo - ATUALIZADO com tamanho_torneio
 Solucao *algoritmo_evolutivo(Problema *prob, int tamanho_pop, int geracoes,
                              double prob_cruzamento, double prob_mutacao,
-                             int tipo_selecao, int tipo_cruzamento, int tipo_mutacao) {
+                             int tipo_selecao, int tipo_cruzamento, int tipo_mutacao,
+                             int tamanho_torneio) {
     Populacao *pop = criar_populacao(prob, tamanho_pop);
     Solucao *melhor = copiar_solucao(pop->populacao[0]);
 
@@ -214,8 +215,8 @@ Solucao *algoritmo_evolutivo(Problema *prob, int tamanho_pop, int geracoes,
             Solucao *p1, *p2;
 
             if (tipo_selecao == 0) {
-                p1 = selecao_torneio(pop, 3);
-                p2 = selecao_torneio(pop, 3);
+                p1 = selecao_torneio(pop, tamanho_torneio);
+                p2 = selecao_torneio(pop, tamanho_torneio);
             } else {
                 p1 = selecao_roleta(pop);
                 p2 = selecao_roleta(pop);

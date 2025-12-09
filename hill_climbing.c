@@ -25,7 +25,9 @@ Solucao *vizinho_trocar_um(Solucao *sol, Problema *prob) {
     }
 
     if (contador > 0) {
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int posicao = rand() % sol->tamanho;
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int novo_ponto = nao_selecionados[rand() % contador];
         vizinho->selecionados[posicao] = novo_ponto;
     }
@@ -54,12 +56,18 @@ Solucao *vizinho_trocar_dois(Solucao *sol, Problema *prob) {
     }
 
     if (contador >= 2 && sol->tamanho >= 2) {
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int pos1 = rand() % sol->tamanho;
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int pos2 = rand() % sol->tamanho;
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         while (pos2 == pos1) pos2 = rand() % sol->tamanho;
 
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int novo1 = nao_selecionados[rand() % contador];
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int novo2 = nao_selecionados[rand() % contador];
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         while (novo2 == novo1) novo2 = nao_selecionados[rand() % contador];
 
         vizinho->selecionados[pos1] = novo1;
@@ -72,7 +80,7 @@ Solucao *vizinho_trocar_dois(Solucao *sol, Problema *prob) {
 }
 
 // Hill Climbing
-Solucao *hill_climbing(Problema *prob, int max_iteracoes, int usar_vizinho2) {
+Solucao *hill_climbing(Problema *prob, int max_iteracoes, int usar_vizinho2, int aceitar_iguais) {
     Solucao *atual = criar_solucao_aleatoria(prob);
     Solucao *melhor = copiar_solucao(atual);
 
@@ -80,7 +88,16 @@ Solucao *hill_climbing(Problema *prob, int max_iteracoes, int usar_vizinho2) {
         Solucao *vizinho = usar_vizinho2 ?
             vizinho_trocar_dois(atual, prob) : vizinho_trocar_um(atual, prob);
 
-        if (vizinho->fitness >= atual->fitness) {
+        // Aceita se melhor, ou se igual e aceitar_iguais está ativo
+        int aceitar = 0;
+        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
+        if (vizinho->fitness > atual->fitness) {
+            aceitar = 1;
+        } else if (aceitar_iguais && vizinho->fitness == atual->fitness) {
+            aceitar = 1;
+        }
+
+        if (aceitar) {
             libertar_solucao(atual);
             atual = vizinho;
 

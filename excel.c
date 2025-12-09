@@ -1,8 +1,3 @@
-//
-// Created by Gabriel on 07/12/2025.
-//
-
-// c
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -12,8 +7,9 @@
 #include "hill_climbing.h"
 #include "evolutivo.h"
 #include "hibridos.h"
+#include "config.h"
 
-void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob) {
+void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob, Configuracao *config) {
     lxw_workbook *livro = workbook_new(nome_ficheiro);
     if (!livro) {
         fprintf(stderr, "Erro: impossivel criar livro %s\n", nome_ficheiro);
@@ -39,9 +35,9 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob) {
     printf("\n=== Executando testes ===\n");
     fflush(stdout);
 
-    size_t n = (size_t)NUM_EXECUCOES;
+    size_t n = (size_t)config->num_execucoes;
     if (n == 0) {
-        fprintf(stderr, "NUM_EXECUCOES = 0\n");
+        fprintf(stderr, "Erro: num_execucoes = 0\n");
         workbook_close(livro);
         return;
     }
@@ -59,9 +55,15 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob) {
     }
 
     // Hill Climbing
-    printf("Hill Climbing...\n"); fflush(stdout);
+    printf("\nHill Climbing...\n");
+    printf("  Parametros: iter=%d, vizinhanca=%d, aceitar_iguais=%d\n", 
+           config->hc.max_iteracoes, config->hc.usar_vizinhanca_2, config->hc.aceitar_iguais);
+    fflush(stdout);
+    
     for (size_t i = 0; i < n; i++) {
-        Solucao *sol = hill_climbing(prob, 5000, 0);
+        Solucao *sol = hill_climbing(prob, config->hc.max_iteracoes, 
+                                     config->hc.usar_vizinhanca_2, 
+                                     config->hc.aceitar_iguais);
         if (!sol) {
             resultados_hc[i] = NAN;
             fprintf(stderr, "Aviso: hill_climbing devolveu NULL na execucao %zu\n", i + 1);
@@ -83,9 +85,23 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob) {
     linha++;
 
     // Algoritmo Evolutivo
-    printf("\nAlgoritmo Evolutivo...\n"); fflush(stdout);
+    printf("\nAlgoritmo Evolutivo...\n");
+    printf("  Parametros: pop=%d, ger=%d, cruz=%.2f, mut=%.2f, sel=%d, cruz_tipo=%d, mut_tipo=%d\n",
+           config->ea.tamanho_populacao, config->ea.num_geracoes, 
+           config->ea.prob_cruzamento, config->ea.prob_mutacao,
+           config->ea.tipo_selecao, config->ea.tipo_cruzamento, config->ea.tipo_mutacao);
+    fflush(stdout);
+    
     for (size_t i = 0; i < n; i++) {
-        Solucao *sol = algoritmo_evolutivo(prob, 50, 200, 0.8, 0.1, 0, 0, 0);
+        Solucao *sol = algoritmo_evolutivo(prob, 
+                                           config->ea.tamanho_populacao,
+                                           config->ea.num_geracoes,
+                                           config->ea.prob_cruzamento,
+                                           config->ea.prob_mutacao,
+                                           config->ea.tipo_selecao,
+                                           config->ea.tipo_cruzamento,
+                                           config->ea.tipo_mutacao,
+                                           config->ea.tamanho_torneio);
         if (!sol) {
             resultados_ea[i] = NAN;
             fprintf(stderr, "Aviso: algoritmo_evolutivo devolveu NULL na execucao %zu\n", i + 1);
@@ -107,9 +123,13 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob) {
     linha++;
 
     // Hibrido 1
-    printf("\nHibrido 1 (Evolutivo + HC)...\n"); fflush(stdout);
+    printf("\nHibrido 1 (Evolutivo + HC)...\n");
+    printf("  Parametros: EA(pop=%d, ger=%d) + HC(iter=%d)\n",
+           config->hib.hibrido1_pop_ea, config->hib.hibrido1_ger_ea, config->hib.hibrido1_iter_hc);
+    fflush(stdout);
+    
     for (size_t i = 0; i < n; i++) {
-        Solucao *sol = hibrido1(prob);
+        Solucao *sol = hibrido1(prob, config);
         if (!sol) {
             resultados_h1[i] = NAN;
             fprintf(stderr, "Aviso: hibrido1 devolveu NULL na execucao %zu\n", i + 1);
@@ -131,9 +151,13 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob) {
     linha++;
 
     // Hibrido 2
-    printf("\nHibrido 2 (HC + Evolutivo)...\n"); fflush(stdout);
+    printf("\nHibrido 2 (HC + Evolutivo)...\n");
+    printf("  Parametros: HC(iter=%d) + EA(pop=%d, ger=%d)\n",
+           config->hib.hibrido2_iter_hc, config->hib.hibrido2_pop_ea, config->hib.hibrido2_ger_ea);
+    fflush(stdout);
+    
     for (size_t i = 0; i < n; i++) {
-        Solucao *sol = hibrido2(prob);
+        Solucao *sol = hibrido2(prob, config);
         if (!sol) {
             resultados_h2[i] = NAN;
             fprintf(stderr, "Aviso: hibrido2 devolveu NULL na execucao %zu\n", i + 1);
