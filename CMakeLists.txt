@@ -41,6 +41,8 @@ set(SOURCES
         evolutivo.c
         hibridos.c
         excel.c
+        analise_profunda.c
+        analise_profunda.h
 )
 
 # Ficheiros header
@@ -52,6 +54,8 @@ set(HEADERS
         evolutivo.h
         hibridos.h
         excel.h
+        analise_profunda.c
+        analise_profunda.h
 )
 
 # Criar executável
