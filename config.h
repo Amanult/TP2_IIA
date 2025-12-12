@@ -1,46 +1,44 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Estrutura para parâmetros do Hill Climbing
+// Estruturas de configuração
 typedef struct {
     int max_iteracoes;
     int usar_vizinhanca_2;
     int aceitar_iguais;
-} ConfigHillClimbing;
+} ConfigHC;
 
-// Estrutura para parâmetros do Algoritmo Evolutivo
 typedef struct {
     int tamanho_populacao;
     int num_geracoes;
     double prob_cruzamento;
     double prob_mutacao;
-    int tipo_selecao;        // 0=torneio, 1=roleta
-    int tipo_cruzamento;     // 0=uniforme, 1=um_ponto
-    int tipo_mutacao;        // 0=trocar, 1=embaralhar
+    int tipo_selecao;
+    int tipo_cruzamento;
+    int tipo_mutacao;
     int tamanho_torneio;
-} ConfigEvolutivo;
+} ConfigEA;
 
-// Estrutura para parâmetros dos Híbridos
 typedef struct {
-    int hibrido1_iter_hc;    // Iterações HC após evolutivo
-    int hibrido1_pop_ea;     // População do EA no híbrido 1
-    int hibrido1_ger_ea;     // Gerações do EA no híbrido 1
-    
-    int hibrido2_iter_hc;    // Iterações HC inicial
-    int hibrido2_pop_ea;     // População do EA no híbrido 2
-    int hibrido2_ger_ea;     // Gerações do EA no híbrido 2
-} ConfigHibridos;
+    int hibrido1_iter_hc;
+    int hibrido1_pop_ea;
+    int hibrido1_ger_ea;
+    int hibrido2_iter_hc;
+    int hibrido2_pop_ea;
+    int hibrido2_ger_ea;
+} ConfigHibrido;
 
-// Estrutura principal de configuração
 typedef struct {
-    int num_execucoes;
-    int seed_aleatoria;      // -1 para usar time(NULL)
-    ConfigHillClimbing hc;
-    ConfigEvolutivo ea;
-    ConfigHibridos hib;
+    // Parâmetros Gerais
+    int num_execucoes;    // Usado no modo normal e agora na análise profunda
+    int seed_aleatoria;
+    int n_threads;        // NOVO: Número de threads para análise
+
+    ConfigHC hc;
+    ConfigEA ea;
+    ConfigHibrido hib;
 } Configuracao;
 
-// Funções de configuração
 Configuracao *carregar_configuracao(const char *nome_ficheiro);
 void criar_ficheiro_configuracao_padrao(const char *nome_ficheiro);
 void libertar_configuracao(Configuracao *config);

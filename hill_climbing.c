@@ -3,8 +3,12 @@
 //
 
 #include <stdlib.h>
+#include <pthread.h>
 #include "hill_climbing.h"
 #include "utils.h"
+
+// Mutex global para proteger o RNG entre threads (definido em analise_profunda.c)
+extern pthread_mutex_t mutex_rand;
 
 // Vizinhança 1: Trocar um ponto selecionado por um não selecionado
 Solucao *vizinho_trocar_um(Solucao *sol, Problema *prob) {
@@ -26,9 +30,10 @@ Solucao *vizinho_trocar_um(Solucao *sol, Problema *prob) {
 
     if (contador > 0) {
         // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
+        pthread_mutex_lock(&mutex_rand);
         int posicao = rand() % sol->tamanho;
-        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int novo_ponto = nao_selecionados[rand() % contador];
+        pthread_mutex_unlock(&mutex_rand);
         vizinho->selecionados[posicao] = novo_ponto;
     }
 
@@ -57,18 +62,14 @@ Solucao *vizinho_trocar_dois(Solucao *sol, Problema *prob) {
 
     if (contador >= 2 && sol->tamanho >= 2) {
         // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
+        pthread_mutex_lock(&mutex_rand);
         int pos1 = rand() % sol->tamanho;
-        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int pos2 = rand() % sol->tamanho;
-        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         while (pos2 == pos1) pos2 = rand() % sol->tamanho;
-
-        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int novo1 = nao_selecionados[rand() % contador];
-        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         int novo2 = nao_selecionados[rand() % contador];
-        // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
         while (novo2 == novo1) novo2 = nao_selecionados[rand() % contador];
+        pthread_mutex_unlock(&mutex_rand);
 
         vizinho->selecionados[pos1] = novo1;
         vizinho->selecionados[pos2] = novo2;

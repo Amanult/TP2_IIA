@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
+#include <math.h>
 #include "analise_profunda.h"
 #include "hill_climbing.h"
 #include "evolutivo.h"
@@ -9,9 +11,32 @@
 #include "utils.h"
 #include "xlsxwriter.h"
 
-#define NUM_TESTES_POR_CONFIG 10
+// Tipos de algoritmos para a fila de tarefas
+typedef enum { ALG_HC, ALG_EA, ALG_H1, ALG_H2 } TipoAlgoritmo;
 
-// Criar conjunto de resultados
+// Estrutura de Tarefa Genérica
+typedef struct {
+    int id;
+    TipoAlgoritmo tipo;
+    // Armazenamento genérico de parâmetros para evitar structs complexas
+    int p1, p2, p3, p4, p5, p6, p7, p8;
+    double d1, d2;
+} Tarefa;
+
+// Variáveis Globais de Controle (Thread Safe via Mutex)
+Tarefa *fila_tarefas = NULL;
+int total_tarefas = 0;
+int tarefa_atual = 0;
+ConjuntoResultados *resultados_global = NULL;
+Problema *problema_global = NULL;
+Configuracao *config_global = NULL;
+
+pthread_mutex_t mutex_tarefas;
+pthread_mutex_t mutex_resultados;
+pthread_mutex_t mutex_rand; // NOVO: Mutex para o RNG
+
+// --- Gestão de Estruturas ---
+
 ConjuntoResultados *criar_conjunto_resultados() {
     ConjuntoResultados *conj = malloc(sizeof(ConjuntoResultados));
     conj->capacidade = 1000;
@@ -20,17 +45,14 @@ ConjuntoResultados *criar_conjunto_resultados() {
     return conj;
 }
 
-// Adicionar resultado
 void adicionar_resultado(ConjuntoResultados *conj, ResultadoTeste resultado) {
     if (conj->num_resultados >= conj->capacidade) {
         conj->capacidade *= 2;
-        conj->resultados = realloc(conj->resultados, 
-                                   conj->capacidade * sizeof(ResultadoTeste));
+        conj->resultados = realloc(conj->resultados, conj->capacidade * sizeof(ResultadoTeste));
     }
     conj->resultados[conj->num_resultados++] = resultado;
 }
 
-// Libertar conjunto
 void libertar_conjunto_resultados(ConjuntoResultados *conj) {
     if (conj) {
         free(conj->resultados);
@@ -38,544 +60,427 @@ void libertar_conjunto_resultados(ConjuntoResultados *conj) {
     }
 }
 
-// Testar uma configuração específica
-ResultadoTeste testar_configuracao_hc(Problema *prob, int iteracoes, 
-                                      int vizinhanca, int aceitar_iguais) {
+// --- Funções Thread-Safe ---
+
+void adicionar_tarefa(Tarefa t) {
+    fila_tarefas = realloc(fila_tarefas, (total_tarefas + 1) * sizeof(Tarefa));
+    fila_tarefas[total_tarefas] = t;
+    total_tarefas++;
+}
+
+void adicionar_resultado_safe(ResultadoTeste res) {
+    pthread_mutex_lock(&mutex_resultados);
+    adicionar_resultado(resultados_global, res);
+    if (resultados_global->num_resultados % 5 == 0 || resultados_global->num_resultados == total_tarefas) {
+        printf("\r[Progresso] %d/%d configuracoes concluidas (%.1f%%)",
+               resultados_global->num_resultados, total_tarefas,
+               (float)resultados_global->num_resultados/total_tarefas*100);
+        fflush(stdout);
+    }
+    pthread_mutex_unlock(&mutex_resultados);
+}
+
+// --- Processamento dos Algoritmos ---
+
+void processar_hc(Tarefa t) {
     ResultadoTeste res;
     sprintf(res.algoritmo, "Hill Climbing");
-    sprintf(res.descricao_params, "iter=%d, viz=%d, aceitar=%d", 
-            iteracoes, vizinhanca, aceitar_iguais);
-    
-    res.parametro1 = iteracoes;
-    res.parametro2 = vizinhanca;
-    res.parametro3 = (double)aceitar_iguais;
-    res.parametro4 = 0.0;
-    
-    double valores[NUM_TESTES_POR_CONFIG];
+    sprintf(res.descricao_params, "iter=%d, viz=%d, aceitar=%d", t.p1, t.p2, t.p3);
+    res.config_id = t.id;
+    res.parametro1 = t.p1; res.parametro2 = t.p2;
+    res.parametro3 = (double)t.p3; res.parametro4 = 0;
+
+    double *valores = malloc(config_global->num_execucoes * sizeof(double));
     clock_t inicio = clock();
-    
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        Solucao *sol = hill_climbing(prob, iteracoes, vizinhanca, aceitar_iguais);
+
+    for (int i = 0; i < config_global->num_execucoes; i++) {
+        Solucao *sol = hill_climbing(problema_global, t.p1, t.p2, t.p3);
         valores[i] = sol->fitness;
         libertar_solucao(sol);
     }
-    
     clock_t fim = clock();
     res.tempo_execucao = ((double)(fim - inicio)) / CLOCKS_PER_SEC;
-    
-    // Calcular estatísticas
-    res.melhor = valores[0];
-    res.pior = valores[0];
-    res.media = 0.0;
-    
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        if (valores[i] > res.melhor) res.melhor = valores[i];
-        if (valores[i] < res.pior) res.pior = valores[i];
-        res.media += valores[i];
-    }
-    res.media /= NUM_TESTES_POR_CONFIG;
-    
-    double variancia = 0.0;
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        double diff = valores[i] - res.media;
-        variancia += diff * diff;
-    }
-    res.desvio_padrao = sqrt(variancia / NUM_TESTES_POR_CONFIG);
-    
-    return res;
+
+    Estatisticas stats;
+    calcular_estatisticas(valores, config_global->num_execucoes, &stats);
+    res.melhor = stats.melhor; res.media = stats.media;
+    res.pior = stats.pior; res.desvio_padrao = stats.desvio_padrao;
+
+    free(valores);
+    adicionar_resultado_safe(res);
 }
 
-// Análise Hill Climbing
-void executar_analise_hill_climbing(Problema *prob, ConjuntoResultados *resultados) {
-    printf("\n=== ANALISE HILL CLIMBING ===\n");
-    
-    int iteracoes_valores[] = {1000, 2000, 5000, 10000, 20000};
-    int vizinhanca_valores[] = {0, 1};
-    int aceitar_valores[] = {0, 1};
-    
-    int total = sizeof(iteracoes_valores)/sizeof(int) * 
-                sizeof(vizinhanca_valores)/sizeof(int) * 
-                sizeof(aceitar_valores)/sizeof(int);
-    int atual = 0;
-    
-    for (int i = 0; i < sizeof(iteracoes_valores)/sizeof(int); i++) {
-        for (int v = 0; v < sizeof(vizinhanca_valores)/sizeof(int); v++) {
-            for (int a = 0; a < sizeof(aceitar_valores)/sizeof(int); a++) {
-                atual++;
-                printf("Configuracao HC %d/%d: iter=%d, viz=%d, aceitar=%d\n", 
-                       atual, total,
-                       iteracoes_valores[i], 
-                       vizinhanca_valores[v], 
-                       aceitar_valores[a]);
-                
-                ResultadoTeste res = testar_configuracao_hc(
-                    prob,
-                    iteracoes_valores[i],
-                    vizinhanca_valores[v],
-                    aceitar_valores[a]
-                );
-                
-                res.config_id = atual;
-                adicionar_resultado(resultados, res);
-                
-                printf("  Melhor: %.2f, Media: %.2f, Tempo: %.2fs\n", 
-                       res.melhor, res.media, res.tempo_execucao);
-            }
-        }
-    }
-}
-
-// Testar configuração Evolutivo
-ResultadoTeste testar_configuracao_ea(Problema *prob, int pop, int ger,
-                                      double prob_cruz, double prob_mut,
-                                      int tipo_sel, int tipo_cruz, 
-                                      int tipo_mut, int tam_torneio) {
+void processar_ea(Tarefa t) {
     ResultadoTeste res;
     sprintf(res.algoritmo, "Evolutivo");
-    sprintf(res.descricao_params, 
-            "pop=%d, ger=%d, cruz=%.2f, mut=%.2f, sel=%d, tc=%d, tm=%d, tt=%d", 
-            pop, ger, prob_cruz, prob_mut, tipo_sel, tipo_cruz, tipo_mut, tam_torneio);
-    
-    res.parametro1 = pop;
-    res.parametro2 = ger;
-    res.parametro3 = prob_cruz;
-    res.parametro4 = prob_mut;
-    
-    double valores[NUM_TESTES_POR_CONFIG];
+    sprintf(res.descricao_params, "pop=%d, ger=%d, cruz=%.2f, mut=%.2f", t.p1, t.p2, t.d1, t.d2);
+    res.config_id = t.id;
+    res.parametro1 = t.p1; res.parametro2 = t.p2;
+    res.parametro3 = t.d1; res.parametro4 = t.d2;
+
+    double *valores = malloc(config_global->num_execucoes * sizeof(double));
     clock_t inicio = clock();
-    
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        Solucao *sol = algoritmo_evolutivo(prob, pop, ger, prob_cruz, prob_mut,
-                                           tipo_sel, tipo_cruz, tipo_mut, tam_torneio);
+
+    for (int i = 0; i < config_global->num_execucoes; i++) {
+        // t.p5=sel, p6=tc, p7=tm, p8=torneio
+        Solucao *sol = algoritmo_evolutivo(problema_global, t.p1, t.p2, t.d1, t.d2, t.p5, t.p6, t.p7, t.p8);
         valores[i] = sol->fitness;
         libertar_solucao(sol);
     }
-    
     clock_t fim = clock();
     res.tempo_execucao = ((double)(fim - inicio)) / CLOCKS_PER_SEC;
-    
-    // Calcular estatísticas
-    res.melhor = valores[0];
-    res.pior = valores[0];
-    res.media = 0.0;
-    
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        if (valores[i] > res.melhor) res.melhor = valores[i];
-        if (valores[i] < res.pior) res.pior = valores[i];
-        res.media += valores[i];
-    }
-    res.media /= NUM_TESTES_POR_CONFIG;
-    
-    double variancia = 0.0;
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        double diff = valores[i] - res.media;
-        variancia += diff * diff;
-    }
-    res.desvio_padrao = sqrt(variancia / NUM_TESTES_POR_CONFIG);
-    
-    return res;
+
+    Estatisticas stats;
+    calcular_estatisticas(valores, config_global->num_execucoes, &stats);
+    res.melhor = stats.melhor; res.media = stats.media;
+    res.pior = stats.pior; res.desvio_padrao = stats.desvio_padrao;
+
+    free(valores);
+    adicionar_resultado_safe(res);
 }
 
-// Análise Evolutivo
-void executar_analise_evolutivo(Problema *prob, ConjuntoResultados *resultados) {
-    printf("\n=== ANALISE EVOLUTIVO ===\n");
-    
-    int pop_valores[] = {20, 50, 100};
-    int ger_valores[] = {50, 100, 200, 500};
-    double cruz_valores[] = {0.6, 0.8, 0.9};
-    double mut_valores[] = {0.05, 0.1, 0.2};
-    int sel_valores[] = {0, 1};  // 0=torneio, 1=roleta
-    int cruz_tipo_valores[] = {0, 1};  // 0=uniforme, 1=um_ponto
-    int mut_tipo_valores[] = {0, 1};  // 0=trocar, 1=embaralhar
-    
-    int config_id = 0;
-    
-    // Testar combinações principais
-    for (int p = 0; p < sizeof(pop_valores)/sizeof(int); p++) {
-        for (int g = 0; g < sizeof(ger_valores)/sizeof(int); g++) {
-            for (int c = 0; c < sizeof(cruz_valores)/sizeof(double); c++) {
-                for (int m = 0; m < sizeof(mut_valores)/sizeof(double); m++) {
-                    for (int s = 0; s < sizeof(sel_valores)/sizeof(int); s++) {
-                        for (int tc = 0; tc < sizeof(cruz_tipo_valores)/sizeof(int); tc++) {
-                            for (int tm = 0; tm < sizeof(mut_tipo_valores)/sizeof(int); tm++) {
-                                config_id++;
-                                
-                                // Limitar número de testes (seria muito!)
-                                // Testar apenas combinações interessantes
-                                if (config_id % 4 != 0) continue;  // Testar 1 em cada 4
-                                
-                                int tam_torneio = 3;  // Fixo por simplicidade
-                                
-                                printf("Configuracao EA %d: pop=%d, ger=%d, cruz=%.2f, mut=%.2f\n",
-                                       config_id, pop_valores[p], ger_valores[g], 
-                                       cruz_valores[c], mut_valores[m]);
-                                
-                                ResultadoTeste res = testar_configuracao_ea(
-                                    prob, 
-                                    pop_valores[p], 
-                                    ger_valores[g],
-                                    cruz_valores[c],
-                                    mut_valores[m],
-                                    sel_valores[s],
-                                    cruz_tipo_valores[tc],
-                                    mut_tipo_valores[tm],
-                                    tam_torneio
-                                );
-                                
-                                res.config_id = config_id;
-                                adicionar_resultado(resultados, res);
-                                
-                                printf("  Melhor: %.2f, Media: %.2f, Tempo: %.2fs\n",
-                                       res.melhor, res.media, res.tempo_execucao);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Testar configuração Híbrido
-ResultadoTeste testar_configuracao_hibrido(Problema *prob, int tipo_hibrido,
-                                          int param1, int param2, int param3) {
+void processar_hibrido(Tarefa t) {
     ResultadoTeste res;
-    
-    if (tipo_hibrido == 1) {
+    Configuracao cfg_temp;
+    // Defaults seguros para o que não está a ser testado
+    cfg_temp.ea.prob_cruzamento = 0.8; cfg_temp.ea.prob_mutacao = 0.1;
+    cfg_temp.ea.tipo_selecao = 0; cfg_temp.ea.tipo_cruzamento = 0;
+    cfg_temp.ea.tipo_mutacao = 0; cfg_temp.ea.tamanho_torneio = 3;
+    cfg_temp.hc.usar_vizinhanca_2 = 0; cfg_temp.hc.aceitar_iguais = 1;
+
+    if(t.tipo == ALG_H1) {
         sprintf(res.algoritmo, "Hibrido 1");
-        sprintf(res.descricao_params, "pop_ea=%d, ger_ea=%d, iter_hc=%d",
-                param1, param2, param3);
+        sprintf(res.descricao_params, "pop=%d, ger=%d, hc=%d", t.p1, t.p2, t.p3);
+        cfg_temp.hib.hibrido1_pop_ea = t.p1;
+        cfg_temp.hib.hibrido1_ger_ea = t.p2;
+        cfg_temp.hib.hibrido1_iter_hc = t.p3;
     } else {
         sprintf(res.algoritmo, "Hibrido 2");
-        sprintf(res.descricao_params, "iter_hc=%d, pop_ea=%d, ger_ea=%d",
-                param1, param2, param3);
+        sprintf(res.descricao_params, "hc=%d, pop=%d, ger=%d", t.p1, t.p2, t.p3);
+        cfg_temp.hib.hibrido2_iter_hc = t.p1;
+        cfg_temp.hib.hibrido2_pop_ea = t.p2;
+        cfg_temp.hib.hibrido2_ger_ea = t.p3;
     }
-    
-    res.parametro1 = param1;
-    res.parametro2 = param2;
-    res.parametro3 = (double)param3;
-    res.parametro4 = 0.0;
-    
-    // Criar configuração temporária
-    Configuracao config;
-    config.ea.prob_cruzamento = 0.8;
-    config.ea.prob_mutacao = 0.1;
-    config.ea.tipo_selecao = 0;
-    config.ea.tipo_cruzamento = 0;
-    config.ea.tipo_mutacao = 0;
-    config.ea.tamanho_torneio = 3;
-    config.hc.usar_vizinhanca_2 = 0;
-    config.hc.aceitar_iguais = 1;
-    
-    if (tipo_hibrido == 1) {
-        config.hib.hibrido1_pop_ea = param1;
-        config.hib.hibrido1_ger_ea = param2;
-        config.hib.hibrido1_iter_hc = param3;
-    } else {
-        config.hib.hibrido2_iter_hc = param1;
-        config.hib.hibrido2_pop_ea = param2;
-        config.hib.hibrido2_ger_ea = param3;
-    }
-    
-    double valores[NUM_TESTES_POR_CONFIG];
+
+    res.config_id = t.id;
+    res.parametro1 = t.p1; res.parametro2 = t.p2;
+    res.parametro3 = (double)t.p3; res.parametro4 = 0;
+
+    double *valores = malloc(config_global->num_execucoes * sizeof(double));
     clock_t inicio = clock();
-    
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        Solucao *sol;
-        if (tipo_hibrido == 1) {
-            sol = hibrido1(prob, &config);
-        } else {
-            sol = hibrido2(prob, &config);
-        }
+
+    for (int i = 0; i < config_global->num_execucoes; i++) {
+        Solucao *sol = (t.tipo == ALG_H1) ? hibrido1(problema_global, &cfg_temp) : hibrido2(problema_global, &cfg_temp);
         valores[i] = sol->fitness;
         libertar_solucao(sol);
     }
-    
     clock_t fim = clock();
     res.tempo_execucao = ((double)(fim - inicio)) / CLOCKS_PER_SEC;
-    
-    // Calcular estatísticas
-    res.melhor = valores[0];
-    res.pior = valores[0];
-    res.media = 0.0;
-    
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        if (valores[i] > res.melhor) res.melhor = valores[i];
-        if (valores[i] < res.pior) res.pior = valores[i];
-        res.media += valores[i];
-    }
-    res.media /= NUM_TESTES_POR_CONFIG;
-    
-    double variancia = 0.0;
-    for (int i = 0; i < NUM_TESTES_POR_CONFIG; i++) {
-        double diff = valores[i] - res.media;
-        variancia += diff * diff;
-    }
-    res.desvio_padrao = sqrt(variancia / NUM_TESTES_POR_CONFIG);
-    
-    return res;
+
+    Estatisticas stats;
+    calcular_estatisticas(valores, config_global->num_execucoes, &stats);
+    res.melhor = stats.melhor; res.media = stats.media;
+    res.pior = stats.pior; res.desvio_padrao = stats.desvio_padrao;
+
+    free(valores);
+    adicionar_resultado_safe(res);
 }
 
-// Análise Híbridos
-void executar_analise_hibridos(Problema *prob, ConjuntoResultados *resultados) {
-    printf("\n=== ANALISE HIBRIDOS ===\n");
-    
-    // Híbrido 1: Evolutivo + HC
-    int h1_pop_valores[] = {30, 50, 100};
-    int h1_ger_valores[] = {50, 100, 200};
-    int h1_iter_valores[] = {200, 500, 1000};
-    
-    int config_id = 0;
-    
-    printf("\n--- Hibrido 1 (Evolutivo + HC) ---\n");
-    for (int p = 0; p < sizeof(h1_pop_valores)/sizeof(int); p++) {
-        for (int g = 0; g < sizeof(h1_ger_valores)/sizeof(int); g++) {
-            for (int i = 0; i < sizeof(h1_iter_valores)/sizeof(int); i++) {
-                config_id++;
-                printf("Configuracao H1 %d: pop=%d, ger=%d, iter_hc=%d\n",
-                       config_id, h1_pop_valores[p], h1_ger_valores[g], h1_iter_valores[i]);
-                
-                ResultadoTeste res = testar_configuracao_hibrido(
-                    prob, 1,
-                    h1_pop_valores[p],
-                    h1_ger_valores[g],
-                    h1_iter_valores[i]
-                );
-                
-                res.config_id = config_id;
-                adicionar_resultado(resultados, res);
-                
-                printf("  Melhor: %.2f, Media: %.2f, Tempo: %.2fs\n",
-                       res.melhor, res.media, res.tempo_execucao);
-            }
+// --- Worker Thread ---
+
+void *thread_worker(void *arg) {
+    int thread_id = arg ? *(int*)arg : -1;
+    while (1) {
+        Tarefa t;
+        int ok = 0;
+
+        // Região Crítica: Buscar tarefa
+        pthread_mutex_lock(&mutex_tarefas);
+        if (tarefa_atual < total_tarefas) {
+            t = fila_tarefas[tarefa_atual++];
+            ok = 1;
         }
+        pthread_mutex_unlock(&mutex_tarefas);
+
+        if (!ok) break;
+
+        // Log: qual thread pegou qual tarefa
+        pthread_mutex_lock(&mutex_resultados);
+        const char* tipo_str = (t.tipo==ALG_HC?"HC":(t.tipo==ALG_EA?"EA":(t.tipo==ALG_H1?"H1":"H2")));
+        char params_str[200];
+        if (t.tipo == ALG_HC) {
+            sprintf(params_str, "iter=%d, viz=%d, aceitar=%d", t.p1, t.p2, t.p3);
+        } else if (t.tipo == ALG_EA) {
+            sprintf(params_str, "pop=%d, ger=%d, cruz=%.2f, mut=%.2f", t.p1, t.p2, t.d1, t.d2);
+        } else if (t.tipo == ALG_H1) {
+            sprintf(params_str, "pop_ea=%d, ger_ea=%d, iter_hc=%d", t.p1, t.p2, t.p3);
+        } else { // ALG_H2
+            sprintf(params_str, "iter_hc=%d, pop_ea=%d, ger_ea=%d", t.p1, t.p2, t.p3);
+        }
+        printf("\n[Thread %d] Iniciou tarefa #%d (%s) com parametros: %s\n", thread_id, t.id, tipo_str, params_str);
+        fflush(stdout);
+        pthread_mutex_unlock(&mutex_resultados);
+
+        // Execução (Sem bloqueio)
+        if (t.tipo == ALG_HC) processar_hc(t);
+        else if (t.tipo == ALG_EA) processar_ea(t);
+        else processar_hibrido(t);
+
+        // Log de conclusão
+        pthread_mutex_lock(&mutex_resultados);
+        printf("[Thread %d] Concluiu tarefa #%d\n", thread_id, t.id);
+        fflush(stdout);
+        pthread_mutex_unlock(&mutex_resultados);
     }
-    
-    // Híbrido 2: HC + Evolutivo
-    int h2_iter_valores[] = {500, 1000, 2000};
-    int h2_pop_valores[] = {20, 30, 50};
-    int h2_ger_valores[] = {30, 50, 100};
-    
-    config_id = 0;
-    
-    printf("\n--- Hibrido 2 (HC + Evolutivo) ---\n");
-    for (int i = 0; i < sizeof(h2_iter_valores)/sizeof(int); i++) {
-        for (int p = 0; p < sizeof(h2_pop_valores)/sizeof(int); p++) {
-            for (int g = 0; g < sizeof(h2_ger_valores)/sizeof(int); g++) {
-                config_id++;
-                printf("Configuracao H2 %d: iter_hc=%d, pop=%d, ger=%d\n",
-                       config_id, h2_iter_valores[i], h2_pop_valores[p], h2_ger_valores[g]);
-                
-                ResultadoTeste res = testar_configuracao_hibrido(
-                    prob, 2,
-                    h2_iter_valores[i],
-                    h2_pop_valores[p],
-                    h2_ger_valores[g]
-                );
-                
-                res.config_id = config_id;
-                adicionar_resultado(resultados, res);
-                
-                printf("  Melhor: %.2f, Media: %.2f, Tempo: %.2fs\n",
-                       res.melhor, res.media, res.tempo_execucao);
-            }
-        }
+    return NULL;
+}
+
+// --- Geração de Tarefas ---
+
+void gerar_tarefas() {
+    int id = 0;
+
+    // 1. Hill Climbing
+    int hc_iter[] = {1000, 5000, 10000, 20000};
+    int hc_viz[] = {0, 1};
+    int hc_ac[] = {0, 1};
+    for(int i=0; i<4; i++) for(int v=0; v<2; v++) for(int a=0; a<2; a++) {
+        Tarefa t = {++id, ALG_HC, hc_iter[i], hc_viz[v], hc_ac[a]};
+        adicionar_tarefa(t);
+    }
+
+    // 2. Evolutivo (Amostragem para não demorar horas)
+    int ea_pop[] = {20, 50, 100};
+    int ea_ger[] = {100, 200, 500};
+    double ea_cruz[] = {0.6, 0.8, 0.9};
+    double ea_mut[] = {0.05, 0.1, 0.2};
+    // Fixos: sel=0(torneio), tc=0(uniforme), tm=0(trocar), tt=3
+    for(int p=0; p<3; p++) for(int g=0; g<3; g++) for(int c=0; c<3; c++) for(int m=0; m<3; m++) {
+        if((p+g+c+m) % 2 != 0) continue; // Pula metade para ser mais rápido
+        Tarefa t = {++id, ALG_EA, ea_pop[p], ea_ger[g], 0, 0, 0, 0, 0, 3};
+        t.d1 = ea_cruz[c]; t.d2 = ea_mut[m];
+        adicionar_tarefa(t);
+    }
+
+    // 3. Hibrido 1
+    int h1_pop[] = {30, 50, 100};
+    int h1_ger[] = {50, 100, 200};
+    int h1_iter_hc[] = {200, 500, 1000};
+    for(int p=0; p<3; p++) for(int g=0; g<3; g++) for(int h=0; h<3; h++) {
+        Tarefa t = {++id, ALG_H1, h1_pop[p], h1_ger[g], h1_iter_hc[h]};
+        adicionar_tarefa(t);
+    }
+
+    // 4. Hibrido 2
+    int h2_iter_hc[] = {500, 1000, 2000};
+    int h2_pop[] = {20, 30, 50};
+    int h2_ger[] = {30, 50, 100};
+    for(int h=0; h<3; h++) for(int p=0; p<3; p++) for(int g=0; g<3; g++) {
+        Tarefa t = {++id, ALG_H2, h2_iter_hc[h], h2_pop[p], h2_ger[g]};
+        adicionar_tarefa(t);
     }
 }
 
-// Escrever resultados em Excel
+// --- Excel e Display ---
+
 void escrever_analise_excel(const char *ficheiro, ConjuntoResultados *resultados) {
     lxw_workbook *livro = workbook_new(ficheiro);
-    if (!livro) {
-        fprintf(stderr, "Erro ao criar ficheiro Excel\n");
+    if (!livro) { printf("Erro ao criar Excel!\n"); return; }
+
+    // Criar primeiro as folhas por algoritmo
+    lxw_worksheet *ws_hc = workbook_add_worksheet(livro, "Hill Climbing");
+    lxw_worksheet *ws_ea = workbook_add_worksheet(livro, "Evolutivo");
+    lxw_worksheet *ws_h1 = workbook_add_worksheet(livro, "Hibrido 1");
+    lxw_worksheet *ws_h2 = workbook_add_worksheet(livro, "Hibrido 2");
+
+    if (!ws_hc || !ws_ea || !ws_h1 || !ws_h2) {
+        printf("Erro ao criar folhas por algoritmo!\n");
+        workbook_close(livro);
         return;
     }
-    
-    // Criar folhas por algoritmo
-    lxw_worksheet *folha_hc = workbook_add_worksheet(livro, "Hill Climbing");
-    lxw_worksheet *folha_ea = workbook_add_worksheet(livro, "Evolutivo");
-    lxw_worksheet *folha_h1 = workbook_add_worksheet(livro, "Hibrido 1");
-    lxw_worksheet *folha_h2 = workbook_add_worksheet(livro, "Hibrido 2");
-    lxw_worksheet *folha_resumo = workbook_add_worksheet(livro, "Resumo");
-    
-    // Formatos
-    lxw_format *fmt_cabecalho = workbook_add_format(livro);
-    format_set_bold(fmt_cabecalho);
-    format_set_bg_color(fmt_cabecalho, 0xCCCCCC);
-    
-    lxw_format *fmt_melhor = workbook_add_format(livro);
-    format_set_bold(fmt_melhor);
-    format_set_bg_color(fmt_melhor, 0x90EE90);
-    
-    // Cabeçalhos
-    const char *headers[] = {
-        "Config ID", "Parametros", "Melhor", "Media", "Pior", 
-        "Desvio Padrao", "Tempo (s)"
-    };
-    
-    lxw_worksheet *folhas[] = {folha_hc, folha_ea, folha_h1, folha_h2};
-    const char *nomes_alg[] = {"Hill Climbing", "Evolutivo", "Hibrido 1", "Hibrido 2"};
-    
-    for (int f = 0; f < 4; f++) {
-        for (int col = 0; col < 7; col++) {
-            worksheet_write_string(folhas[f], 0, col, headers[col], fmt_cabecalho);
-        }
-        worksheet_set_column(folhas[f], 1, 1, 60, NULL);  // Coluna parâmetros larga
+
+    lxw_format *bold = workbook_add_format(livro);
+    format_set_bold(bold);
+
+    // Cabeçalhos comuns
+    const char *headers[] = {"Config ID", "Melhor", "Media", "Pior", "Desvio", "Tempo(s)", "Parametros"};
+    for (int c = 0; c < 7; c++) {
+        worksheet_write_string(ws_hc, 0, c, headers[c], bold);
+        worksheet_write_string(ws_ea, 0, c, headers[c], bold);
+        worksheet_write_string(ws_h1, 0, c, headers[c], bold);
+        worksheet_write_string(ws_h2, 0, c, headers[c], bold);
     }
-    
-    // Escrever dados
-    int linhas[4] = {1, 1, 1, 1};
-    double melhor_global[4] = {-1, -1, -1, -1};
-    int linha_melhor[4] = {-1, -1, -1, -1};
-    
+
+    // Linhas atuais por folha
+    int linha_hc = 1, linha_ea = 1, linha_h1 = 1, linha_h2 = 1;
+
+    // Rastreamento dos melhores por algoritmo
+    double best_hc = -INFINITY, best_ea = -INFINITY, best_h1 = -INFINITY, best_h2 = -INFINITY;
+    int best_id_hc = -1, best_id_ea = -1, best_id_h1 = -1, best_id_h2 = -1;
+    const char *best_desc_hc = NULL, *best_desc_ea = NULL, *best_desc_h1 = NULL, *best_desc_h2 = NULL;
+
+    // Distribuir resultados pelas folhas e calcular melhores
     for (int i = 0; i < resultados->num_resultados; i++) {
-        ResultadoTeste *res = &resultados->resultados[i];
-        
-        int idx_folha = -1;
-        if (strcmp(res->algoritmo, "Hill Climbing") == 0) idx_folha = 0;
-        else if (strcmp(res->algoritmo, "Evolutivo") == 0) idx_folha = 1;
-        else if (strcmp(res->algoritmo, "Hibrido 1") == 0) idx_folha = 2;
-        else if (strcmp(res->algoritmo, "Hibrido 2") == 0) idx_folha = 3;
-        
-        if (idx_folha == -1) continue;
-        
-        int linha = linhas[idx_folha]++;
-        lxw_worksheet *folha = folhas[idx_folha];
-        
-        worksheet_write_number(folha, linha, 0, res->config_id, NULL);
-        worksheet_write_string(folha, linha, 1, res->descricao_params, NULL);
-        worksheet_write_number(folha, linha, 2, res->melhor, NULL);
-        worksheet_write_number(folha, linha, 3, res->media, NULL);
-        worksheet_write_number(folha, linha, 4, res->pior, NULL);
-        worksheet_write_number(folha, linha, 5, res->desvio_padrao, NULL);
-        worksheet_write_number(folha, linha, 6, res->tempo_execucao, NULL);
-        
-        // Rastrear melhor
-        if (res->melhor > melhor_global[idx_folha]) {
-            melhor_global[idx_folha] = res->melhor;
-            linha_melhor[idx_folha] = linha;
+        ResultadoTeste *r = &resultados->resultados[i];
+        lxw_worksheet *dest = NULL;
+        int *linha_ptr = NULL;
+
+        if (strcmp(r->algoritmo, "Hill Climbing") == 0) {
+            dest = ws_hc; linha_ptr = &linha_hc;
+            if (r->melhor > best_hc) { best_hc = r->melhor; best_id_hc = r->config_id; best_desc_hc = r->descricao_params; }
+        } else if (strcmp(r->algoritmo, "Evolutivo") == 0) {
+            dest = ws_ea; linha_ptr = &linha_ea;
+            if (r->melhor > best_ea) { best_ea = r->melhor; best_id_ea = r->config_id; best_desc_ea = r->descricao_params; }
+        } else if (strcmp(r->algoritmo, "Hibrido 1") == 0) {
+            dest = ws_h1; linha_ptr = &linha_h1;
+            if (r->melhor > best_h1) { best_h1 = r->melhor; best_id_h1 = r->config_id; best_desc_h1 = r->descricao_params; }
+        } else if (strcmp(r->algoritmo, "Hibrido 2") == 0) {
+            dest = ws_h2; linha_ptr = &linha_h2;
+            if (r->melhor > best_h2) { best_h2 = r->melhor; best_id_h2 = r->config_id; best_desc_h2 = r->descricao_params; }
+        } else {
+            // Algoritmo desconhecido, ignorar
+            continue;
         }
+
+        int linha = (*linha_ptr);
+        worksheet_write_number(dest, linha, 0, r->config_id, NULL);
+        worksheet_write_number(dest, linha, 1, r->melhor, NULL);
+        worksheet_write_number(dest, linha, 2, r->media, NULL);
+        worksheet_write_number(dest, linha, 3, r->pior, NULL);
+        worksheet_write_number(dest, linha, 4, r->desvio_padrao, NULL);
+        worksheet_write_number(dest, linha, 5, r->tempo_execucao, NULL);
+        worksheet_write_string(dest, linha, 6, r->descricao_params, NULL);
+        (*linha_ptr)++;
     }
-    
-    // Destacar melhores
-    for (int f = 0; f < 4; f++) {
-        if (linha_melhor[f] != -1) {
-            for (int col = 0; col < 7; col++) {
-                // Re-escrever com formato destacado
-                lxw_worksheet *folha = folhas[f];
-                int linha = linha_melhor[f];
-                
-                // Ler valor atual e re-escrever com formato
-                if (col == 0) {
-                    worksheet_write_number(folha, linha, col, 
-                                         resultados->resultados[linha-1].config_id, 
-                                         fmt_melhor);
-                } else if (col == 1) {
-                    worksheet_write_string(folha, linha, col,
-                                         resultados->resultados[linha-1].descricao_params,
-                                         fmt_melhor);
-                }
-            }
-        }
+
+    // Criar a folha de resumo por último, para que fique no fim
+    lxw_worksheet *ws_resumo = workbook_add_worksheet(livro, "Resumo");
+    if (ws_resumo) {
+        worksheet_write_string(ws_resumo, 0, 0, "Algoritmo", bold);
+        worksheet_write_string(ws_resumo, 0, 1, "Melhor Fitness", bold);
+        worksheet_write_string(ws_resumo, 0, 2, "Melhor Configuracao", bold);
+        worksheet_write_string(ws_resumo, 0, 3, "Melhor Config ID", bold);
+
+        int l = 1;
+        worksheet_write_string(ws_resumo, l, 0, "Hill Climbing", NULL);
+        worksheet_write_number(ws_resumo, l, 1, best_hc, NULL);
+        worksheet_write_string(ws_resumo, l, 2, best_desc_hc ? best_desc_hc : "", NULL);
+        worksheet_write_number(ws_resumo, l, 3, best_id_hc, NULL);
+        l++;
+
+        worksheet_write_string(ws_resumo, l, 0, "Evolutivo", NULL);
+        worksheet_write_number(ws_resumo, l, 1, best_ea, NULL);
+        worksheet_write_string(ws_resumo, l, 2, best_desc_ea ? best_desc_ea : "", NULL);
+        worksheet_write_number(ws_resumo, l, 3, best_id_ea, NULL);
+        l++;
+
+        worksheet_write_string(ws_resumo, l, 0, "Hibrido 1", NULL);
+        worksheet_write_number(ws_resumo, l, 1, best_h1, NULL);
+        worksheet_write_string(ws_resumo, l, 2, best_desc_h1 ? best_desc_h1 : "", NULL);
+        worksheet_write_number(ws_resumo, l, 3, best_id_h1, NULL);
+        l++;
+
+        worksheet_write_string(ws_resumo, l, 0, "Hibrido 2", NULL);
+        worksheet_write_number(ws_resumo, l, 1, best_h2, NULL);
+        worksheet_write_string(ws_resumo, l, 2, best_desc_h2 ? best_desc_h2 : "", NULL);
+        worksheet_write_number(ws_resumo, l, 3, best_id_h2, NULL);
+        l++;
+    } else {
+        printf("Aviso: nao foi possivel criar a folha 'Resumo' no Excel de analise.\n");
     }
-    
-    // Folha Resumo
-    worksheet_write_string(folha_resumo, 0, 0, "Algoritmo", fmt_cabecalho);
-    worksheet_write_string(folha_resumo, 0, 1, "Melhor Fitness", fmt_cabecalho);
-    worksheet_write_string(folha_resumo, 0, 2, "Configuracao", fmt_cabecalho);
-    worksheet_set_column(folha_resumo, 2, 2, 60, NULL);
-    
-    for (int f = 0; f < 4; f++) {
-        worksheet_write_string(folha_resumo, f + 1, 0, nomes_alg[f], NULL);
-        worksheet_write_number(folha_resumo, f + 1, 1, melhor_global[f], NULL);
-        
-        // Encontrar configuração correspondente
-        for (int i = 0; i < resultados->num_resultados; i++) {
-            if (strcmp(resultados->resultados[i].algoritmo, nomes_alg[f]) == 0 &&
-                resultados->resultados[i].melhor == melhor_global[f]) {
-                worksheet_write_string(folha_resumo, f + 1, 2, 
-                                     resultados->resultados[i].descricao_params, NULL);
-                break;
-            }
-        }
-    }
-    
+
     workbook_close(livro);
-    printf("\n=== Analise salva em %s ===\n", ficheiro);
+    printf("\nResultados guardados em: %s\n", ficheiro);
 }
 
-// Mostrar melhores configurações
 void mostrar_melhores_configuracoes(ConjuntoResultados *resultados) {
-    printf("\n========================================\n");
-    printf("  MELHORES CONFIGURACOES ENCONTRADAS\n");
-    printf("========================================\n");
-    
-    const char *algoritmos[] = {"Hill Climbing", "Evolutivo", "Hibrido 1", "Hibrido 2"};
-    
-    for (int a = 0; a < 4; a++) {
-        double melhor_fitness = -1;
-        int melhor_idx = -1;
-        
-        for (int i = 0; i < resultados->num_resultados; i++) {
-            if (strcmp(resultados->resultados[i].algoritmo, algoritmos[a]) == 0) {
-                if (resultados->resultados[i].melhor > melhor_fitness) {
-                    melhor_fitness = resultados->resultados[i].melhor;
-                    melhor_idx = i;
+    printf("\n=== MELHORES CONFIGURACOES ===\n");
+    // Lógica simples: encontrar o melhor absoluto de cada tipo
+    const char *tipos[] = {"Hill Climbing", "Evolutivo", "Hibrido 1", "Hibrido 2"};
+
+    for(int t=0; t<4; t++) {
+        int idx = -1;
+        double melhor_fit = -1.0;
+
+        for(int i=0; i<resultados->num_resultados; i++) {
+            if(strcmp(resultados->resultados[i].algoritmo, tipos[t]) == 0) {
+                if(resultados->resultados[i].melhor > melhor_fit) {
+                    melhor_fit = resultados->resultados[i].melhor;
+                    idx = i;
                 }
             }
         }
-        
-        if (melhor_idx != -1) {
-            ResultadoTeste *res = &resultados->resultados[melhor_idx];
-            printf("\n%s:\n", algoritmos[a]);
-            printf("  Fitness: %.2f\n", res->melhor);
-            printf("  Media: %.2f\n", res->media);
-            printf("  Parametros: %s\n", res->descricao_params);
-            printf("  Tempo: %.2f segundos\n", res->tempo_execucao);
+
+        if(idx != -1) {
+            // Linha corrigida para usar 'resultados' (o argumento da função)
+            printf("[%s] Fitness: %.2f | Params: %s\n",
+                   tipos[t], melhor_fit, resultados->resultados[idx].descricao_params);
         }
     }
-    
-    printf("\n========================================\n");
 }
 
-// Executar análise completa
-void executar_analise_profunda(Problema *prob, const char *ficheiro_saida) {
+// --- Função Principal ---
+
+void executar_analise_profunda(Problema *prob, Configuracao *config, const char *ficheiro_saida) {
     printf("\n");
     printf("========================================\n");
-    printf("  INICIANDO ANALISE PROFUNDA\n");
+    printf("  ANALISE PROFUNDA MULTITHREADED\n");
     printf("========================================\n");
-    printf("Ficheiro de saida: %s\n", ficheiro_saida);
-    printf("Testes por configuracao: %d\n", NUM_TESTES_POR_CONFIG);
-    printf("\n");
-    printf("AVISO: Esta analise pode demorar varios minutos!\n");
+    printf("Ficheiro Saida: %s\n", ficheiro_saida);
+    printf("Threads: %d\n", config->n_threads);
+    printf("Execucoes por config: %d\n", config->num_execucoes);
     printf("========================================\n");
-    
-    ConjuntoResultados *resultados = criar_conjunto_resultados();
-    
+
+    // Inicialização
+    problema_global = prob;
+    config_global = config;
+    resultados_global = criar_conjunto_resultados();
+    pthread_mutex_init(&mutex_tarefas, NULL);
+    pthread_mutex_init(&mutex_resultados, NULL);
+    pthread_mutex_init(&mutex_rand, NULL); // NOVO: Inicializar mutex rand
+
+    // 1. Gerar Tarefas
+    printf("A gerar tarefas...\n");
+    gerar_tarefas();
+    printf("Total de configuracoes a testar: %d\n", total_tarefas);
+
+    // 2. Criar e Executar Threads
+    pthread_t *threads = malloc(config->n_threads * sizeof(pthread_t));
+    int *thread_ids = malloc(config->n_threads * sizeof(int));
     clock_t inicio_total = clock();
-    
-    // Executar análises
-    executar_analise_hill_climbing(prob, resultados);
-    executar_analise_evolutivo(prob, resultados);
-    executar_analise_hibridos(prob, resultados);
-    
+
+    printf("A iniciar %d threads...\n", config->n_threads);
+    for (int i = 0; i < config->n_threads; i++) {
+        thread_ids[i] = i + 1;
+        if (pthread_create(&threads[i], NULL, thread_worker, &thread_ids[i]) != 0) {
+            fprintf(stderr, "Erro critico ao criar thread %d\n", i);
+            exit(1);
+        }
+    }
+
+    // 3. Aguardar Conclusão
+    for (int i = 0; i < config->n_threads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
     clock_t fim_total = clock();
     double tempo_total = ((double)(fim_total - inicio_total)) / CLOCKS_PER_SEC;
-    
-    printf("\n========================================\n");
+
+    printf("\n\n========================================\n");
     printf("  ANALISE CONCLUIDA\n");
     printf("========================================\n");
-    printf("Total de configuracoes testadas: %d\n", resultados->num_resultados);
-    printf("Tempo total: %.2f segundos (%.2f minutos)\n", 
-           tempo_total, tempo_total / 60.0);
-    printf("========================================\n");
-    
-    // Mostrar melhores
-    mostrar_melhores_configuracoes(resultados);
-    
-    // Escrever Excel
-    escrever_analise_excel(ficheiro_saida, resultados);
-    
-    // Libertar memória
-    libertar_conjunto_resultados(resultados);
+    printf("Tempo total (CPU aprox): %.2fs\n", tempo_total);
+
+    // 4. Finalização
+    mostrar_melhores_configuracoes(resultados_global);
+    escrever_analise_excel(ficheiro_saida, resultados_global);
+
+    // Limpeza
+    free(threads);
+    free(thread_ids);
+    if (fila_tarefas) free(fila_tarefas);
+    libertar_conjunto_resultados(resultados_global);
+    pthread_mutex_destroy(&mutex_tarefas);
+    pthread_mutex_destroy(&mutex_resultados);
+    pthread_mutex_destroy(&mutex_rand); // NOVO: Destruir mutex rand
 }

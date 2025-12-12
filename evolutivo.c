@@ -1,8 +1,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
+#include <pthread.h>
 #include "evolutivo.h"
 #include "utils.h"
+
+// Mutex global para proteger o RNG entre threads (definido em analise_profunda.c)
+extern pthread_mutex_t mutex_rand;
 
 // [Manter as funções criar_populacao, libertar_populacao, selecao_roleta,
 //  recombinacao_uniforme, recombinacao_um_ponto, mutacao_trocar, mutacao_embaralhar
@@ -33,7 +37,9 @@ void libertar_populacao(Populacao *pop) {
 Solucao *selecao_torneio(Populacao *pop, int tamanho_torneio) {
     Solucao *melhor = NULL;
     for (int i = 0; i < tamanho_torneio; i++) {
+        pthread_mutex_lock(&mutex_rand);
         Solucao *candidato = pop->populacao[rand() % pop->tamanho];
+        pthread_mutex_unlock(&mutex_rand);
         if (!melhor || candidato->fitness > melhor->fitness) {
             melhor = candidato;
         }
@@ -56,7 +62,9 @@ Solucao *selecao_roleta(Populacao *pop) {
         total += pop->populacao[i]->fitness - fitness_minimo + 1.0;
     }
 
+    pthread_mutex_lock(&mutex_rand);
     double r = ((double)rand() / RAND_MAX) * total;
+    pthread_mutex_unlock(&mutex_rand);
     double soma = 0.0;
 
     for (int i = 0; i < pop->tamanho; i++) {
@@ -91,7 +99,9 @@ Solucao *recombinacao_uniforme(Solucao *p1, Solucao *p2, Problema *prob) {
 
     if (contador_unicos >= filho->tamanho) {
         for (int i = 0; i < filho->tamanho; i++) {
+            pthread_mutex_lock(&mutex_rand);
             int idx = rand() % contador_unicos;
+            pthread_mutex_unlock(&mutex_rand);
             filho->selecionados[i] = todos[idx];
             todos[idx] = todos[--contador_unicos];
         }
@@ -102,7 +112,9 @@ Solucao *recombinacao_uniforme(Solucao *p1, Solucao *p2, Problema *prob) {
         }
 
         while (contador < filho->tamanho) {
+            pthread_mutex_lock(&mutex_rand);
             int candidato = rand() % prob->num_candidatos;
+            pthread_mutex_unlock(&mutex_rand);
             int encontrado = 0;
             for (int i = 0; i < contador; i++) {
                 if (filho->selecionados[i] == candidato) {
@@ -125,7 +137,9 @@ Solucao *recombinacao_um_ponto(Solucao *p1, Solucao *p2, Problema *prob) {
     filho->tamanho = prob->num_selecionados;
     filho->selecionados = malloc(filho->tamanho * sizeof(int));
 
+    pthread_mutex_lock(&mutex_rand);
     int ponto = rand() % filho->tamanho;
+    pthread_mutex_unlock(&mutex_rand);
 
     for (int i = 0; i < ponto; i++) {
         filho->selecionados[i] = p1->selecionados[i];
@@ -144,7 +158,9 @@ Solucao *recombinacao_um_ponto(Solucao *p1, Solucao *p2, Problema *prob) {
     }
 
     while (contador < filho->tamanho) {
+        pthread_mutex_lock(&mutex_rand);
         int candidato = rand() % prob->num_candidatos;
+        pthread_mutex_unlock(&mutex_rand);
         int encontrado = 0;
         for (int i = 0; i < contador; i++) {
             if (filho->selecionados[i] == candidato) {
@@ -161,11 +177,15 @@ Solucao *recombinacao_um_ponto(Solucao *p1, Solucao *p2, Problema *prob) {
 
 // Mutação: trocar um gene
 void mutacao_trocar(Solucao *sol, Problema *prob) {
+    pthread_mutex_lock(&mutex_rand);
     int posicao = rand() % sol->tamanho;
+    pthread_mutex_unlock(&mutex_rand);
     int novo_valor;
 
     do {
+        pthread_mutex_lock(&mutex_rand);
         novo_valor = rand() % prob->num_candidatos;
+        pthread_mutex_unlock(&mutex_rand);
         int encontrado = 0;
         for (int i = 0; i < sol->tamanho; i++) {
             if (i != posicao && sol->selecionados[i] == novo_valor) {
@@ -183,7 +203,9 @@ void mutacao_trocar(Solucao *sol, Problema *prob) {
 // Mutação: embaralhar
 void mutacao_embaralhar(Solucao *sol, Problema *prob) {
     for (int i = sol->tamanho - 1; i > 0; i--) {
+        pthread_mutex_lock(&mutex_rand);
         int j = rand() % (i + 1);
+        pthread_mutex_unlock(&mutex_rand);
         int temp = sol->selecionados[i];
         sol->selecionados[i] = sol->selecionados[j];
         sol->selecionados[j] = temp;
@@ -223,7 +245,10 @@ Solucao *algoritmo_evolutivo(Problema *prob, int tamanho_pop, int geracoes,
             }
 
             Solucao *filho;
-            if ((double)rand() / RAND_MAX < prob_cruzamento) {
+            pthread_mutex_lock(&mutex_rand);
+            double r_cruz = (double)rand() / RAND_MAX;
+            pthread_mutex_unlock(&mutex_rand);
+            if (r_cruz < prob_cruzamento) {
                 if (tipo_cruzamento == 0) {
                     filho = recombinacao_uniforme(p1, p2, prob);
                 } else {
@@ -233,7 +258,10 @@ Solucao *algoritmo_evolutivo(Problema *prob, int tamanho_pop, int geracoes,
                 filho = copiar_solucao(p1);
             }
 
-            if ((double)rand() / RAND_MAX < prob_mutacao) {
+            pthread_mutex_lock(&mutex_rand);
+            double r_mut = (double)rand() / RAND_MAX;
+            pthread_mutex_unlock(&mutex_rand);
+            if (r_mut < prob_mutacao) {
                 if (tipo_mutacao == 0) {
                     mutacao_trocar(filho, prob);
                 } else {

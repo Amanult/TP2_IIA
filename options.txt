@@ -10,11 +10,15 @@
 
 # --- PARAMETROS GERAIS ---
 # Numero de execucoes de cada algoritmo
-num_execucoes=10
+num_execucoes=100
 
 # Seed aleatoria (-1 para usar tempo atual)
 # Use um valor fixo (ex: 42) para resultados reproduziveis
 seed_aleatoria=-1
+
+# NOVO: Número de threads a usar no modo '--analise-profunda'
+# Sugestão: Use o número de núcleos lógicos do seu CPU
+analise_n_threads=12
 
 # --- HILL CLIMBING ---
 # Numero maximo de iteracoes

@@ -9,6 +9,25 @@
 #include "hibridos.h"
 #include "config.h"
 
+// Estrutura para armazenar o melhor fitness e a solucao correspondente
+typedef struct {
+    double fitness;
+    Solucao *solucao;
+} MelhorSolucao;
+
+// Funcao auxiliar para escrever cabecalhos de folha de algoritmo
+void escrever_cabecalho_algoritmo(lxw_worksheet *folha, const char *nome_algoritmo) {
+    worksheet_write_string(folha, 0, 0, "Execucao", NULL);
+    worksheet_write_string(folha, 0, 1, "Fitness", NULL);
+    // Adicionar mais colunas se necessario para detalhes da solucao
+}
+
+// Funcao auxiliar para escrever resultados de uma execucao
+void escrever_linha_algoritmo(lxw_worksheet *folha, int linha, int execucao_num, double fitness) {
+    worksheet_write_number(folha, linha, 0, execucao_num, NULL);
+    worksheet_write_number(folha, linha, 1, fitness, NULL);
+}
+
 void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob, Configuracao *config) {
     lxw_workbook *livro = workbook_new(nome_ficheiro);
     if (!livro) {
@@ -17,20 +36,26 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob, Config
         return;
     }
 
-    lxw_worksheet *folha = workbook_add_worksheet(livro, "Resultados");
-    if (!folha) {
-        fprintf(stderr, "Erro: impossivel criar folha no livro\n");
+    // A folha de resumo deve ficar no fim, por isso vamos criá-la só depois das execuções
+    lxw_worksheet *folha_resumo = NULL;
+    int linha_resumo = 1;
+
+    // Folhas para cada algoritmo
+    lxw_worksheet *folha_hc = workbook_add_worksheet(livro, "Hill Climbing");
+    lxw_worksheet *folha_ea = workbook_add_worksheet(livro, "Evolutivo");
+    lxw_worksheet *folha_h1 = workbook_add_worksheet(livro, "Hibrido 1");
+    lxw_worksheet *folha_h2 = workbook_add_worksheet(livro, "Hibrido 2");
+
+    if (!folha_hc || !folha_ea || !folha_h1 || !folha_h2) {
+        fprintf(stderr, "Erro: impossivel criar folhas de algoritmo no livro\n");
         workbook_close(livro);
         return;
     }
 
-    int linha = 0;
-    worksheet_write_string(folha, linha, 0, "Algoritmo", NULL);
-    worksheet_write_string(folha, linha, 1, "Melhor", NULL);
-    worksheet_write_string(folha, linha, 2, "Media", NULL);
-    worksheet_write_string(folha, linha, 3, "Pior", NULL);
-    worksheet_write_string(folha, linha, 4, "Desvio Padrao", NULL);
-    linha++;
+    escrever_cabecalho_algoritmo(folha_hc, "Hill Climbing");
+    escrever_cabecalho_algoritmo(folha_ea, "Algoritmo Evolutivo");
+    escrever_cabecalho_algoritmo(folha_h1, "Hibrido 1");
+    escrever_cabecalho_algoritmo(folha_h2, "Hibrido 2");
 
     printf("\n=== Executando testes ===\n");
     fflush(stdout);
@@ -42,17 +67,14 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob, Config
         return;
     }
 
-    double *resultados_hc = malloc(sizeof(double) * n);
-    double *resultados_ea = malloc(sizeof(double) * n);
-    double *resultados_h1 = malloc(sizeof(double) * n);
-    double *resultados_h2 = malloc(sizeof(double) * n);
-
-    if (!resultados_hc || !resultados_ea || !resultados_h1 || !resultados_h2) {
-        fprintf(stderr, "Erro: sem memoria para resultados\n");
-        free(resultados_hc); free(resultados_ea); free(resultados_h1); free(resultados_h2);
-        workbook_close(livro);
-        return;
-    }
+    MelhorSolucao melhor_hc = { .fitness = -INFINITY, .solucao = NULL };
+    MelhorSolucao melhor_ea = { .fitness = -INFINITY, .solucao = NULL };
+    MelhorSolucao melhor_h1 = { .fitness = -INFINITY, .solucao = NULL };
+    MelhorSolucao melhor_h2 = { .fitness = -INFINITY, .solucao = NULL };
+    int melhor_exec_hc = -1;
+    int melhor_exec_ea = -1;
+    int melhor_exec_h1 = -1;
+    int melhor_exec_h2 = -1;
 
     // Hill Climbing
     printf("\nHill Climbing...\n");
@@ -65,24 +87,20 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob, Config
                                      config->hc.usar_vizinhanca_2, 
                                      config->hc.aceitar_iguais);
         if (!sol) {
-            resultados_hc[i] = NAN;
             fprintf(stderr, "Aviso: hill_climbing devolveu NULL na execucao %zu\n", i + 1);
         } else {
-            resultados_hc[i] = sol->fitness;
+            escrever_linha_algoritmo(folha_hc, (int)i + 1, (int)i + 1, sol->fitness);
+            if (sol->fitness > melhor_hc.fitness) {
+                if (melhor_hc.solucao) libertar_solucao(melhor_hc.solucao);
+                melhor_hc.fitness = sol->fitness;
+                melhor_hc.solucao = copiar_solucao(sol);
+                melhor_exec_hc = (int)i + 1;
+            }
             libertar_solucao(sol);
         }
-        printf("  Execucao %zu: %.2f\n", i + 1, resultados_hc[i]);
+        printf("  Execucao %zu: %.2f\n", i + 1, (sol ? sol->fitness : NAN));
     }
     fflush(stdout);
-    Estatisticas stats_hc;
-    calcular_estatisticas(resultados_hc, (int)n, &stats_hc);
-
-    worksheet_write_string(folha, linha, 0, "Hill Climbing", NULL);
-    worksheet_write_number(folha, linha, 1, stats_hc.melhor, NULL);
-    worksheet_write_number(folha, linha, 2, stats_hc.media, NULL);
-    worksheet_write_number(folha, linha, 3, stats_hc.pior, NULL);
-    worksheet_write_number(folha, linha, 4, stats_hc.desvio_padrao, NULL);
-    linha++;
 
     // Algoritmo Evolutivo
     printf("\nAlgoritmo Evolutivo...\n");
@@ -103,24 +121,20 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob, Config
                                            config->ea.tipo_mutacao,
                                            config->ea.tamanho_torneio);
         if (!sol) {
-            resultados_ea[i] = NAN;
             fprintf(stderr, "Aviso: algoritmo_evolutivo devolveu NULL na execucao %zu\n", i + 1);
         } else {
-            resultados_ea[i] = sol->fitness;
+            escrever_linha_algoritmo(folha_ea, (int)i + 1, (int)i + 1, sol->fitness);
+            if (sol->fitness > melhor_ea.fitness) {
+                if (melhor_ea.solucao) libertar_solucao(melhor_ea.solucao);
+                melhor_ea.fitness = sol->fitness;
+                melhor_ea.solucao = copiar_solucao(sol);
+                melhor_exec_ea = (int)i + 1;
+            }
             libertar_solucao(sol);
         }
-        printf("  Execucao %zu: %.2f\n", i + 1, resultados_ea[i]);
+        printf("  Execucao %zu: %.2f\n", i + 1, (sol ? sol->fitness : NAN));
     }
     fflush(stdout);
-    Estatisticas stats_ea;
-    calcular_estatisticas(resultados_ea, (int)n, &stats_ea);
-
-    worksheet_write_string(folha, linha, 0, "Evolutivo", NULL);
-    worksheet_write_number(folha, linha, 1, stats_ea.melhor, NULL);
-    worksheet_write_number(folha, linha, 2, stats_ea.media, NULL);
-    worksheet_write_number(folha, linha, 3, stats_ea.pior, NULL);
-    worksheet_write_number(folha, linha, 4, stats_ea.desvio_padrao, NULL);
-    linha++;
 
     // Hibrido 1
     printf("\nHibrido 1 (Evolutivo + HC)...\n");
@@ -131,24 +145,20 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob, Config
     for (size_t i = 0; i < n; i++) {
         Solucao *sol = hibrido1(prob, config);
         if (!sol) {
-            resultados_h1[i] = NAN;
             fprintf(stderr, "Aviso: hibrido1 devolveu NULL na execucao %zu\n", i + 1);
         } else {
-            resultados_h1[i] = sol->fitness;
+            escrever_linha_algoritmo(folha_h1, (int)i + 1, (int)i + 1, sol->fitness);
+            if (sol->fitness > melhor_h1.fitness) {
+                if (melhor_h1.solucao) libertar_solucao(melhor_h1.solucao);
+                melhor_h1.fitness = sol->fitness;
+                melhor_h1.solucao = copiar_solucao(sol);
+                melhor_exec_h1 = (int)i + 1;
+            }
             libertar_solucao(sol);
         }
-        printf("  Execucao %zu: %.2f\n", i + 1, resultados_h1[i]);
+        printf("  Execucao %zu: %.2f\n", i + 1, (sol ? sol->fitness : NAN));
     }
     fflush(stdout);
-    Estatisticas stats_h1;
-    calcular_estatisticas(resultados_h1, (int)n, &stats_h1);
-
-    worksheet_write_string(folha, linha, 0, "Hibrido 1", NULL);
-    worksheet_write_number(folha, linha, 1, stats_h1.melhor, NULL);
-    worksheet_write_number(folha, linha, 2, stats_h1.media, NULL);
-    worksheet_write_number(folha, linha, 3, stats_h1.pior, NULL);
-    worksheet_write_number(folha, linha, 4, stats_h1.desvio_padrao, NULL);
-    linha++;
 
     // Hibrido 2
     printf("\nHibrido 2 (HC + Evolutivo)...\n");
@@ -159,28 +169,58 @@ void escrever_resultados_excel(const char *nome_ficheiro, Problema *prob, Config
     for (size_t i = 0; i < n; i++) {
         Solucao *sol = hibrido2(prob, config);
         if (!sol) {
-            resultados_h2[i] = NAN;
             fprintf(stderr, "Aviso: hibrido2 devolveu NULL na execucao %zu\n", i + 1);
         } else {
-            resultados_h2[i] = sol->fitness;
+            escrever_linha_algoritmo(folha_h2, (int)i + 1, (int)i + 1, sol->fitness);
+            if (sol->fitness > melhor_h2.fitness) {
+                if (melhor_h2.solucao) libertar_solucao(melhor_h2.solucao);
+                melhor_h2.fitness = sol->fitness;
+                melhor_h2.solucao = copiar_solucao(sol);
+                melhor_exec_h2 = (int)i + 1;
+            }
             libertar_solucao(sol);
         }
-        printf("  Execucao %zu: %.2f\n", i + 1, resultados_h2[i]);
+        printf("  Execucao %zu: %.2f\n", i + 1, (sol ? sol->fitness : NAN));
     }
     fflush(stdout);
-    Estatisticas stats_h2;
-    calcular_estatisticas(resultados_h2, (int)n, &stats_h2);
 
-    worksheet_write_string(folha, linha, 0, "Hibrido 2", NULL);
-    worksheet_write_number(folha, linha, 1, stats_h2.melhor, NULL);
-    worksheet_write_number(folha, linha, 2, stats_h2.media, NULL);
-    worksheet_write_number(folha, linha, 3, stats_h2.pior, NULL);
-    worksheet_write_number(folha, linha, 4, stats_h2.desvio_padrao, NULL);
+    // Criar a folha de resumo por último para que apareça no fim do ficheiro
+    folha_resumo = workbook_add_worksheet(livro, "Resumo");
+    if (!folha_resumo) {
+        fprintf(stderr, "Erro: impossivel criar folha de resumo no livro\n");
+        // Mesmo sem a folha de resumo, fechar o livro depois de libertar memórias
+    } else {
+        worksheet_write_string(folha_resumo, 0, 0, "Algoritmo", NULL);
+        worksheet_write_string(folha_resumo, 0, 1, "Melhor Fitness", NULL);
+        worksheet_write_string(folha_resumo, 0, 2, "Melhor Iteracao", NULL);
 
-    free(resultados_hc);
-    free(resultados_ea);
-    free(resultados_h1);
-    free(resultados_h2);
+        // Escrever resumo
+        worksheet_write_string(folha_resumo, linha_resumo, 0, "Hill Climbing", NULL);
+        worksheet_write_number(folha_resumo, linha_resumo, 1, melhor_hc.fitness, NULL);
+        worksheet_write_number(folha_resumo, linha_resumo, 2, melhor_exec_hc, NULL);
+        linha_resumo++;
+
+        worksheet_write_string(folha_resumo, linha_resumo, 0, "Evolutivo", NULL);
+        worksheet_write_number(folha_resumo, linha_resumo, 1, melhor_ea.fitness, NULL);
+        worksheet_write_number(folha_resumo, linha_resumo, 2, melhor_exec_ea, NULL);
+        linha_resumo++;
+
+        worksheet_write_string(folha_resumo, linha_resumo, 0, "Hibrido 1", NULL);
+        worksheet_write_number(folha_resumo, linha_resumo, 1, melhor_h1.fitness, NULL);
+        worksheet_write_number(folha_resumo, linha_resumo, 2, melhor_exec_h1, NULL);
+        linha_resumo++;
+
+        worksheet_write_string(folha_resumo, linha_resumo, 0, "Hibrido 2", NULL);
+        worksheet_write_number(folha_resumo, linha_resumo, 1, melhor_h2.fitness, NULL);
+        worksheet_write_number(folha_resumo, linha_resumo, 2, melhor_exec_h2, NULL);
+        linha_resumo++;
+    }
+
+    // Libertar solucoes guardadas
+    if (melhor_hc.solucao) libertar_solucao(melhor_hc.solucao);
+    if (melhor_ea.solucao) libertar_solucao(melhor_ea.solucao);
+    if (melhor_h1.solucao) libertar_solucao(melhor_h1.solucao);
+    if (melhor_h2.solucao) libertar_solucao(melhor_h2.solucao);
 
     workbook_close(livro);
     printf("\n=== Resultados salvos em %s ===\n", nome_ficheiro);

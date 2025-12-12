@@ -2,7 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <pthread.h>
 #include "utils.h"
+
+// Mutex global para proteger o RNG entre threads (definido em analise_profunda.c)
+extern pthread_mutex_t mutex_rand;
 
 // Lê o ficheiro de entrada
 int ler_problema(const char *nome_ficheiro, Problema *prob) {
@@ -85,7 +89,9 @@ Solucao *criar_solucao_aleatoria(Problema *prob) {
     for (int i = 0; i < prob->num_candidatos; i++) disponiveis[i] = i;
 
     for (int i = 0; i < sol->tamanho; i++) {
+        pthread_mutex_lock(&mutex_rand);
         int idx = rand() % (prob->num_candidatos - i);
+        pthread_mutex_unlock(&mutex_rand);
         sol->selecionados[i] = disponiveis[idx];
         disponiveis[idx] = disponiveis[prob->num_candidatos - i - 1];
     }
@@ -112,23 +118,38 @@ void libertar_solucao(Solucao *sol) {
     }
 }
 
-// Calcula estatísticas
+// Calcula estatísticas (robusto para n > NUM_EXECUCOES)
 void calcular_estatisticas(double *valores, int n, Estatisticas *stats) {
+    if (n <= 0) {
+        stats->melhor = 0.0;
+        stats->pior = 0.0;
+        stats->media = 0.0;
+        stats->desvio_padrao = 0.0;
+        return;
+    }
+
     stats->melhor = valores[0];
     stats->pior = valores[0];
     stats->media = 0.0;
 
-    for (int i = 0; i < n; i++) {
+    // Copiar no máximo NUM_EXECUCOES valores para o array fixo, para evitar overflow
+    int limite = n < NUM_EXECUCOES ? n : NUM_EXECUCOES;
+    for (int i = 0; i < limite; i++) {
         stats->execucoes[i] = valores[i];
-        stats->media += valores[i];
-        if (valores[i] > stats->melhor) stats->melhor = valores[i];
-        if (valores[i] < stats->pior) stats->pior = valores[i];
+    }
+
+    for (int i = 0; i < n; i++) {
+        double v = valores[i];
+        stats->media += v;
+        if (v > stats->melhor) stats->melhor = v;
+        if (v < stats->pior) stats->pior = v;
     }
     stats->media /= n;
 
     double variancia = 0.0;
     for (int i = 0; i < n; i++) {
-        variancia += (valores[i] - stats->media) * (valores[i] - stats->media);
+        double diff = valores[i] - stats->media;
+        variancia += diff * diff;
     }
     stats->desvio_padrao = sqrt(variancia / n);
 }
