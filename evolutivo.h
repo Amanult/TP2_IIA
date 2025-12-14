@@ -1,3 +1,13 @@
+/*
+ * Módulo: evolutivo.h
+ * ------------------------------------------------------------
+ * Declara a API do Algoritmo Evolutivo (EA) usada pelo resto do projeto:
+ *  - Criação/libertação de populações;
+ *  - Estratégias de seleção (torneio/roleta);
+ *  - Operadores de recombinação (uniforme/um ponto) e mutação;
+ *  - Função principal `algoritmo_evolutivo` que executa o EA dado um
+ *    problema e parâmetros.
+ */
 #ifndef EVOLUTIVO_H
 #define EVOLUTIVO_H
 

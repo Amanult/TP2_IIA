@@ -1,3 +1,11 @@
+/*
+ * Módulo: config.h
+ * ------------------------------------------------------------
+ * Define as estruturas de configuração para os diferentes algoritmos
+ * (Hill Climbing, Evolutivo e Híbridos) e a configuração global do
+ * programa. Fornece também as funções para carregar/criar/mostrar e
+ * libertar configurações (implementadas em config.c).
+ */
 #ifndef CONFIG_H
 #define CONFIG_H
 

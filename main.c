@@ -1,3 +1,16 @@
+/*
+ * Programa: Otimizador Turístico (TP2)
+ * ------------------------------------------------------------
+ * Ponto de entrada da aplicação. Este módulo:
+ *  - Lê argumentos de linha de comandos (ou pergunta interativamente em falta);
+ *  - Carrega o problema (cidades/locais e distâncias);
+ *  - Carrega a configuração a partir de um ficheiro de opções;
+ *  - Decide entre executar o modo normal (produz ficheiro Excel com resultados)
+ *    ou o modo de análise profunda (varre várias configurações e produz Excel);
+ *  - Garante a libertação correta de todos os recursos no fim.
+ *  - Depende dos módulos: estruturas, utils, excel, config, analise_profunda.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -8,6 +21,7 @@
 #include "config.h"
 #include "analise_profunda.h"
 
+// Mostra texto de ajuda sobre como executar o programa
 void mostrar_ajuda() {
     printf("========================================\n");
     printf("  OTIMIZADOR TURISTICO\n");
@@ -20,6 +34,9 @@ void mostrar_ajuda() {
     printf("  --help                  Mostrar esta ajuda\n\n");
 }
 
+// Pergunta ao utilizador, de forma interativa, opções base quando não são
+// passadas via linha de comandos (nome do ficheiro de configuração e se
+// deseja executar a análise profunda)
 void ler_opcoes_interactivas(char *ficheiro_config, int *modo_analise_profunda) {
     char resposta[256];
     printf("\nConfiguracao de Opcoes:\n");
@@ -37,6 +54,7 @@ void ler_opcoes_interactivas(char *ficheiro_config, int *modo_analise_profunda) 
     }
 }
 
+// Função principal
 int main(int argc, char *argv[]) {
     char ficheiro_entrada[256] = "";
     char ficheiro_config[256] = "options.txt";
@@ -57,7 +75,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Carregar problema
+    // Carregar problema (distâncias e número de locais a selecionar)
     Problema prob;
     prob.nomes = NULL; prob.distancias = NULL;
     if (!ler_problema(ficheiro_entrada, &prob)) {
@@ -65,7 +83,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Nome base para ficheiros de saída (apenas nome do ficheiro, sem diretórios nem caracteres inválidos)
+    // Preparar nome base para ficheiros de saída (apenas nome do ficheiro,
+    // sem diretórios nem caracteres inválidos, e sem extensão)
     char base[256];
     strncpy(base, ficheiro_entrada, 255);
     base[255] = '\0';
@@ -89,7 +108,8 @@ int main(int argc, char *argv[]) {
             *p = '_';
     }
 
-    // Carregar configuração (AGORA SEMPRE NECESSÁRIA)
+    // Carregar configuração (sempre necessária). Caso não exista, a função
+    // de utilidade cria um ficheiro com valores padrão.
     printf("A carregar configuracao de: %s\n", ficheiro_config);
     Configuracao *config = carregar_configuracao(ficheiro_config);
     if (!config) {
@@ -98,7 +118,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Seed
+    // Inicializar gerador de números aleatórios (seed). Se a seed for -1,
+    // usa-se o tempo atual para obter uma seed variável.
     if (config->seed_aleatoria == -1) srand(time(NULL));
     else srand(config->seed_aleatoria);
 
@@ -120,11 +141,13 @@ int main(int argc, char *argv[]) {
         char ficheiro_analise[256];
         snprintf(ficheiro_analise, sizeof(ficheiro_analise), "analise_profunda_%s.xlsx", base_clean);
 
-        // Passar config para análise
+        // Modo de Análise Profunda: avalia várias combinações de parâmetros
+        // e escreve um relatório completo em Excel
         executar_analise_profunda(&prob, config, ficheiro_analise);
 
     } else {
-        // Modo Normal
+        // Modo Normal: executa o algoritmo com a configuração dada e
+        // exporta métricas resumidas para Excel
         printf("Modo: NORMAL (Execucoes: %d)\n", config->num_execucoes);
         mostrar_configuracao(config);
 

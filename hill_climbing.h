@@ -1,3 +1,10 @@
+/*
+ * Módulo: hill_climbing.h
+ * ------------------------------------------------------------
+ * Declara a API do algoritmo Hill Climbing e das funções de
+ * geração de vizinhos usadas para explorar a vizinhança de
+ * uma solução.
+ */
 #ifndef HILL_CLIMBING_H
 #define HILL_CLIMBING_H
 

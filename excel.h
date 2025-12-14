@@ -1,3 +1,10 @@
+/*
+ * Módulo: excel.h
+ * ------------------------------------------------------------
+ * Declara funções para exportar resultados em ficheiros Excel
+ * usando a biblioteca libxlsxwriter. A implementação está em
+ * excel.c.
+ */
 #ifndef EXCEL_H
 #define EXCEL_H
 

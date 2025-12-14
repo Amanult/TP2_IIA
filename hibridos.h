@@ -1,3 +1,11 @@
+/*
+ * Módulo: hibridos.h
+ * ------------------------------------------------------------
+ * Declara os algoritmos híbridos que combinam EA e Hill Climbing.
+ *  - hibrido1: Evolutivo seguido de refinamento com Hill Climbing;
+ *  - hibrido2: Arranque com Hill Climbing para gerar indivíduos
+ *              promissores e depois Evolutivo.
+ */
 #ifndef HIBRIDOS_H
 #define HIBRIDOS_H
 
